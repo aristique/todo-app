@@ -1,0 +1,254 @@
+# Название workflow — отображается в GitHub Actions UI
+name: CI/CD — Build, Test, Push to Docker Hub
+
+# ─── Триггеры ──────────────────────────────────────────────────────────────
+on:
+  push:
+    branches:
+      - main        # Запускается при push в ветку main
+  pull_request:
+    branches:
+      - main        # Запускается при создании PR в main
+
+# ─── Переменные окружения (доступны во всех job-ах) ────────────────────────
+env:
+  # Имя пользователя Docker Hub берём из секрета
+  DOCKER_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+
+# ─── Jobs ─────────────────────────────────────────────────────────────────
+jobs:
+  build-test-push:
+    name: Build → Test → Push
+    runs-on: ubuntu-latest   # Используем Ubuntu виртуальную машину
+
+    steps:
+      # ── 1. Получить код из репозитория ────────────────────────────────
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ── 2. Войти в Docker Hub ─────────────────────────────────────────
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # ── 3. Собрать образ базы данных ──────────────────────────────────
+      - name: Build DB image
+        run: |
+          docker build \
+            -t $DOCKER_USERNAME/todo-db:latest \
+            -t $DOCKER_USERNAME/todo-db:${{ github.sha }} \
+            ./todo-app/db
+
+      # ── 4. Собрать образ бэкенда ──────────────────────────────────────
+      - name: Build Backend image
+        run: |
+          docker build \
+            -t $DOCKER_USERNAME/todo-backend:latest \
+            -t $DOCKER_USERNAME/todo-backend:${{ github.sha }} \
+            ./todo-app/backend
+
+      # ── 5. Собрать образ фронтенда ────────────────────────────────────
+      - name: Build Frontend image
+        run: |
+          docker build \
+            -t $DOCKER_USERNAME/todo-frontend:latest \
+            -t $DOCKER_USERNAME/todo-frontend:${{ github.sha }} \
+            ./todo-app/frontend
+
+      # ── 6. Создать Docker network ─────────────────────────────────────
+      - name: Create Docker network
+        run: docker network create todo-network
+
+      # ── 7. Запустить PostgreSQL ───────────────────────────────────────
+      - name: Start PostgreSQL container
+        run: |
+          docker run -d \
+            --name postgres-db \
+            --network todo-network \
+            -e POSTGRES_USER=todouser \
+            -e POSTGRES_PASSWORD=todopassword \
+            -e POSTGRES_DB=tododb \
+            $DOCKER_USERNAME/todo-db:latest
+
+      # ── 8. Ждать готовности БД ────────────────────────────────────────
+      # Проверяем через pg_isready внутри контейнера
+      - name: Wait for PostgreSQL to be ready
+        run: |
+          echo "Waiting for PostgreSQL..."
+          for i in $(seq 1 30); do
+            if docker exec postgres-db pg_isready -U todouser -d tododb > /dev/null 2>&1; then
+              echo "PostgreSQL is ready!"
+              break
+            fi
+            echo "Attempt $i/30 — not ready yet, waiting 2s..."
+            sleep 2
+          done
+
+      # ── 9. Запустить Backend ──────────────────────────────────────────
+      - name: Start Backend container
+        run: |
+          docker run -d \
+            --name todo-backend \
+            --network todo-network \
+            -e DB_HOST=postgres-db \
+            -e DB_PORT=5432 \
+            -e DB_USER=todouser \
+            -e DB_PASSWORD=todopassword \
+            -e DB_NAME=tododb \
+            -e PORT=4000 \
+            -p 4000:4000 \
+            $DOCKER_USERNAME/todo-backend:latest
+
+      # ── 10. Ждать готовности Backend ──────────────────────────────────
+      - name: Wait for Backend to be ready
+        run: |
+          echo "Waiting for Backend..."
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:4000/health > /dev/null 2>&1; then
+              echo "Backend is ready!"
+              break
+            fi
+            echo "Attempt $i/30 — not ready yet, waiting 2s..."
+            sleep 2
+          done
+
+      # ── 11. Запустить Frontend ────────────────────────────────────────
+      - name: Start Frontend container
+        run: |
+          docker run -d \
+            --name todo-frontend \
+            --network todo-network \
+            -p 3000:80 \
+            $DOCKER_USERNAME/todo-frontend:latest
+
+      # ── 12. Ждать готовности Frontend ─────────────────────────────────
+      - name: Wait for Frontend (Nginx) to be ready
+        run: |
+          echo "Waiting for Frontend..."
+          for i in $(seq 1 15); do
+            if curl -sf http://localhost:3000 > /dev/null 2>&1; then
+              echo "Frontend is ready!"
+              break
+            fi
+            sleep 2
+          done
+
+      # ── 13. HTTP-тесты через curl ─────────────────────────────────────
+      # Проверяем все CRUD эндпоинты
+
+      - name: Test — Health Check
+        run: |
+          echo "=== Testing /health ==="
+          curl -sf http://localhost:4000/health
+          echo ""
+          echo "✅ Health check passed"
+
+      - name: Test — GET /tasks (пустой список)
+        run: |
+          echo "=== Testing GET /tasks ==="
+          RESPONSE=$(curl -sf http://localhost:4000/tasks)
+          echo "Response: $RESPONSE"
+          # Проверяем, что ответ — это JSON массив
+          echo "$RESPONSE" | python3 -c "import sys,json; data=json.load(sys.stdin); assert isinstance(data, list), 'Expected array'"
+          echo "✅ GET /tasks passed"
+
+      - name: Test — POST /tasks (создание задачи)
+        run: |
+          echo "=== Testing POST /tasks ==="
+          RESPONSE=$(curl -sf -X POST http://localhost:4000/tasks \
+            -H "Content-Type: application/json" \
+            -d '{"title":"Test Task from CI","description":"Auto-generated"}')
+          echo "Response: $RESPONSE"
+          # Проверяем, что в ответе есть поле id
+          TASK_ID=$(echo "$RESPONSE" | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
+          echo "Created task ID: $TASK_ID"
+          echo "TASK_ID=$TASK_ID" >> $GITHUB_ENV
+          echo "✅ POST /tasks passed"
+
+      - name: Test — GET /tasks/:id (получение по ID)
+        run: |
+          echo "=== Testing GET /tasks/$TASK_ID ==="
+          RESPONSE=$(curl -sf http://localhost:4000/tasks/$TASK_ID)
+          echo "Response: $RESPONSE"
+          echo "$RESPONSE" | python3 -c "import sys,json; d=json.load(sys.stdin); assert d['title']=='Test Task from CI'"
+          echo "✅ GET /tasks/:id passed"
+
+      - name: Test — PUT /tasks/:id (обновление)
+        run: |
+          echo "=== Testing PUT /tasks/$TASK_ID ==="
+          RESPONSE=$(curl -sf -X PUT http://localhost:4000/tasks/$TASK_ID \
+            -H "Content-Type: application/json" \
+            -d '{"title":"Updated Task","description":"Updated desc","completed":true}')
+          echo "Response: $RESPONSE"
+          echo "$RESPONSE" | python3 -c "import sys,json; d=json.load(sys.stdin); assert d['completed']==True"
+          echo "✅ PUT /tasks/:id passed"
+
+      - name: Test — DELETE /tasks/:id (удаление)
+        run: |
+          echo "=== Testing DELETE /tasks/$TASK_ID ==="
+          RESPONSE=$(curl -sf -X DELETE http://localhost:4000/tasks/$TASK_ID)
+          echo "Response: $RESPONSE"
+          echo "✅ DELETE /tasks/:id passed"
+
+      - name: Test — Frontend доступен
+        run: |
+          echo "=== Testing Frontend ==="
+          HTTP_CODE=$(curl -o /dev/null -s -w "%{http_code}" http://localhost:3000)
+          echo "HTTP Status: $HTTP_CODE"
+          [ "$HTTP_CODE" = "200" ] || (echo "❌ Frontend returned $HTTP_CODE" && exit 1)
+          echo "✅ Frontend passed"
+
+      # ── 14. Вывести логи при ошибке (только если предыдущий шаг упал) ─
+      - name: Show container logs on failure
+        if: failure()
+        run: |
+          echo "=== PostgreSQL logs ==="
+          docker logs postgres-db || true
+          echo ""
+          echo "=== Backend logs ==="
+          docker logs todo-backend || true
+          echo ""
+          echo "=== Frontend logs ==="
+          docker logs todo-frontend || true
+
+      # ── 15. Остановить и удалить контейнеры ──────────────────────────
+      - name: Stop and remove containers
+        if: always()   # Выполняется всегда — даже если тесты упали
+        run: |
+          docker rm -f postgres-db todo-backend todo-frontend || true
+          docker network rm todo-network || true
+          echo "✅ Cleanup done"
+
+      # ── 16. Пушим образы на Docker Hub ───────────────────────────────
+      # Только если все тесты прошли и это push в main (не PR)
+      - name: Push DB image to Docker Hub
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          docker push $DOCKER_USERNAME/todo-db:latest
+          docker push $DOCKER_USERNAME/todo-db:${{ github.sha }}
+
+      - name: Push Backend image to Docker Hub
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          docker push $DOCKER_USERNAME/todo-backend:latest
+          docker push $DOCKER_USERNAME/todo-backend:${{ github.sha }}
+
+      - name: Push Frontend image to Docker Hub
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          docker push $DOCKER_USERNAME/todo-frontend:latest
+          docker push $DOCKER_USERNAME/todo-frontend:${{ github.sha }}
+
+      - name: Summary
+        if: success()
+        run: |
+          echo "## ✅ CI/CD Pipeline completed successfully!" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Published images:" >> $GITHUB_STEP_SUMMARY
+          echo "- \`$DOCKER_USERNAME/todo-db:latest\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`$DOCKER_USERNAME/todo-backend:latest\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`$DOCKER_USERNAME/todo-frontend:latest\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Commit SHA:** \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
