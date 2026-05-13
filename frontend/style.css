@@ -1,0 +1,187 @@
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  background: #f0f2f5;
+  color: #333;
+}
+
+.container {
+  max-width: 960px;
+  margin: 40px auto;
+  padding: 0 20px;
+}
+
+h1 {
+  text-align: center;
+  font-size: 2rem;
+  margin-bottom: 30px;
+  color: #2c3e50;
+}
+
+.form-card {
+  background: #fff;
+  border-radius: 12px;
+  padding: 24px;
+  margin-bottom: 30px;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+}
+
+.form-card h2 { margin-bottom: 16px; color: #2c3e50; }
+
+.form-card input[type="text"],
+.form-card textarea,
+.form-card select {
+  width: 100%;
+  padding: 10px 14px;
+  margin-bottom: 12px;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  font-size: 14px;
+  outline: none;
+  transition: border 0.2s;
+}
+
+.form-card input:focus,
+.form-card textarea:focus,
+.form-card select:focus {
+  border-color: #3498db;
+}
+
+.form-buttons { display: flex; gap: 10px; }
+
+button {
+  padding: 10px 22px;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 600;
+  transition: background 0.2s;
+}
+
+#submit-btn { background: #3498db; color: #fff; }
+#submit-btn:hover { background: #2980b9; }
+#cancel-btn { background: #e74c3c; color: #fff; }
+#cancel-btn:hover { background: #c0392b; }
+
+table {
+  width: 100%;
+  background: #fff;
+  border-radius: 12px;
+  border-collapse: collapse;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+  overflow: hidden;
+}
+
+thead { background: #2c3e50; color: #fff; }
+th, td { padding: 14px 16px; text-align: left; }
+tbody tr:nth-child(even) { background: #f8f9fa; }
+tbody tr:hover { background: #eaf4fb; }
+
+.status-badge {
+  padding: 4px 10px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.status-pending    { background: #ffeaa7; color: #856404; }
+.status-in_progress{ background: #bee5eb; color: #0c5460; }
+.status-done       { background: #c3e6cb; color: #155724; }
+
+.actions { display: flex; gap: 6px; flex-wrap: wrap; }
+
+.btn-view   { background: #17a2b8; color: #fff; padding: 6px 12px; font-size: 12px; }
+.btn-edit   { background: #ffc107; color: #333; padding: 6px 12px; font-size: 12px; }
+.btn-delete { background: #dc3545; color: #fff; padding: 6px 12px; font-size: 12px; }
+.btn-email  { background: #6f42c1; color: #fff; padding: 6px 12px; font-size: 12px; }
+
+/* Модальное окно */
+.modal {
+  position: fixed; top: 0; left: 0;
+  width: 100%; height: 100%;
+  background: rgba(0,0,0,0.5);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 1000;
+}
+.modal-content {
+  background: #fff;
+  padding: 30px;
+  border-radius: 12px;
+  max-width: 500px;
+  width: 90%;
+  position: relative;
+}
+.modal-content p { margin-bottom: 10px; line-height: 1.6; }
+.close-btn {
+  position: absolute; top: 12px; right: 16px;
+  font-size: 20px; cursor: pointer; color: #666;
+}
+.close-btn:hover { color: #333; }
+
+.email-modal-content {
+  max-width: 600px;
+  max-height: 85vh;
+  overflow-y: auto;
+}
+
+.email-section {
+  border-top: 1px solid #eee;
+  padding-top: 16px;
+  margin-top: 16px;
+}
+
+.email-section h3 { margin-bottom: 12px; color: #2c3e50; font-size: 1rem; }
+
+.email-section input[type="email"],
+.email-section input[type="text"],
+.email-section textarea {
+  width: 100%;
+  padding: 8px 12px;
+  margin-bottom: 10px;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  font-size: 14px;
+}
+
+.email-result {
+  margin-top: 10px;
+  padding: 10px;
+  background: #f8f9fa;
+  border-radius: 8px;
+  font-size: 13px;
+  min-height: 30px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.result-success { border-left: 4px solid #28a745; }
+.result-error   { border-left: 4px solid #dc3545; color: #dc3545; }
+
+/* WebSocket статус */
+#ws-status {
+  display: inline-block;
+  padding: 4px 12px;
+  border-radius: 20px;
+  font-size: 14px;
+  margin-bottom: 16px;
+  font-weight: 500;
+}
+.ws-connected {
+  background: #d4edda;
+  color: #155724;
+  border: 1px solid #c3e6cb;
+}
+.ws-disconnected {
+  background: #f8d7da;
+  color: #721c24;
+  border: 1px solid #f5c6cb;
+}
+
+/* Статус задачи */
+td.done { color: #28a745; font-weight: 600; }
+td.pending { color: #856404; }
+
+.hidden {
+  display: none !important;
+}
